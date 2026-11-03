@@ -1,0 +1,6 @@
+# Full system: API + vehicle detection
+fastapi
+uvicorn
+python-multipart
+ultralytics
+opencv-python

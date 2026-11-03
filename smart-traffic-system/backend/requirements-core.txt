@@ -1,0 +1,6 @@
+# Core only: algorithm + API + dashboard + simulation.
+# Use this first - it is light and installs fast on an 8 GB laptop.
+# Add requirements.txt later, only when you test video detection.
+fastapi
+uvicorn
+python-multipart

@@ -1,0 +1,1 @@
+{"all_red":2,"alpha_density":0.6,"beta_queue":0.4,"confidence":0.4,"fixed_green":30,"green_max":60,"green_min":10,"green_total_per_cycle":120,"level_high_min":15,"level_low_max":5,"max_red":180,"pcu_weights":{"bus":2.5,"car":1.0,"motorcycle":0.5,"truck":2.0},"stale_timeout_seconds":10,"yellow":3}

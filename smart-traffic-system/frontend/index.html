@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Traffic Light Management System</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; background: #111827; color: #f9fafb; }
+  header { padding: 16px 24px; background: #1f2937; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; color: #9ca3af; font-size: 13px; }
+  main { padding: 20px 24px; max-width: 1100px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .card { background: #1f2937; border-radius: 10px; padding: 14px; }
+  .card h2 { margin: 0 0 8px; font-size: 16px; }
+  .lights { display: flex; gap: 8px; margin: 10px 0; }
+  .light { width: 26px; height: 26px; border-radius: 50%; background: #374151; }
+  .light.red.on { background: #ef4444; } .light.yellow.on { background: #f59e0b; } .light.green.on { background: #22c55e; }
+  .badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #374151; }
+  .badge.Low { background: #065f46; } .badge.Medium { background: #92400e; } .badge.High { background: #991b1b; }
+  button, select { background: #2563eb; color: white; border: 0; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+  button.secondary { background: #374151; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  th, td { border-bottom: 1px solid #374151; padding: 6px; text-align: left; font-size: 14px; }
+  .muted { color: #9ca3af; font-size: 13px; }
+  #phase { font-size: 18px; margin: 14px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AI-Based Smart Traffic Light Management System</h1>
+  <p>Prototype for demonstration only — not a certified traffic control system.</p>
+</header>
+<main>
+  <div id="phase">Loading signal status…</div>
+  <div>
+    <button id="btnAdaptive">Adaptive mode</button>
+    <button id="btnFixed" class="secondary">Fixed-time mode</button>
+    <span class="muted" id="sourceLabel"></span>
+  </div>
+
+  <h3 style="margin-top:28px;">Upload traffic videos — get signal times</h3>
+  <p class="muted">
+    One normal video shows one road, so upload one video for each approach.
+    The system samples frames from each video, counts the vehicles it can
+    see (car, motorcycle, bus, truck), and then decides how many seconds
+    of green each signal should get. Until you upload a video, the numbers
+    below are demo numbers only.
+  </p>
+  <div class="grid">
+    <div class="card"><h2>North video</h2><input type="file" id="fileNorth" accept="video/*"></div>
+    <div class="card"><h2>East video</h2><input type="file" id="fileEast" accept="video/*"></div>
+    <div class="card"><h2>South video</h2><input type="file" id="fileSouth" accept="video/*"></div>
+    <div class="card"><h2>West video</h2><input type="file" id="fileWest" accept="video/*"></div>
+  </div>
+  <p>
+    <button id="btnAnalyze">Analyze videos &amp; recommend signal times</button>
+    <span class="muted" id="analyzeStatus"></span>
+  </p>
+  <div id="videoResult"></div>
+
+  <h3>Approaches</h3>
+  <div class="grid" id="cards"></div>
+
+  <h3 style="margin-top:28px;">Fixed-time vs Adaptive — simulation comparison</h3>
+  <p class="muted">Simulation from assumed arrival rates, not a measurement from real traffic.</p>
+  <select id="scenario">
+    <option value="low">Low traffic</option>
+    <option value="medium" selected>Medium traffic</option>
+    <option value="high">High traffic</option>
+  </select>
+  <button id="btnRun">Run comparison (10 simulated minutes)</button>
+  <div id="comparison"></div>
+</main>
+
+<script>
+let lastTraffic = null;
+
+function lightState(name, current) {
+  // Returns 'red' | 'yellow' | 'green' for one approach
+  if (!current) return 'red';
+  if (current.state === 'green' && current.green_approach === name) return 'green';
+  if (current.state === 'yellow' && current.approach === name) return 'yellow';
+  if (current.state === 'all_red') return 'red';
+  return 'red';
+}
+
+async function loadStatus() {
+  const res = await fetch('/api/status');
+  const data = await res.json();
+  lastTraffic = {};
+  const cards = document.getElementById('cards');
+  cards.innerHTML = '';
+  for (const [name, d] of Object.entries(data.approaches)) {
+    lastTraffic[name] = { counts: d.counts, queue: d.queue };
+    const state = lightState(name, data.current_phase);
+    const counts = Object.entries(d.counts).map(([k, v]) => `${k}: ${v}`).join(', ');
+    cards.innerHTML += `
+      <div class="card">
+        <h2>${name} <span class="badge ${d.level}">${d.level}</span></h2>
+        <div class="lights">
+          <div class="light red ${state === 'red' ? 'on' : ''}"></div>
+          <div class="light yellow ${state === 'yellow' ? 'on' : ''}"></div>
+          <div class="light green ${state === 'green' ? 'on' : ''}"></div>
+        </div>
+        <div>${counts}</div>
+        <div class="muted">Queue: ${d.queue} · Density (PCU): ${d.density} · Green: ${d.green_time}s</div>
+      </div>`;
+  }
+  const p = data.current_phase;
+  document.getElementById('phase').textContent = p
+    ? `Now: ${p.state.replace('_', ' ')}${p.green_approach ? ' — ' + p.green_approach : ''} · ${p.seconds_left}s left · Mode: ${data.mode}`
+    : 'No active phase';
+  document.getElementById('sourceLabel').textContent =
+    `Source: ${data.source}${data.source === 'demo' ? ' (sample numbers, no video connected yet)' : ''}`;
+}
+
+async function setMode(mode) {
+  await fetch('/api/mode', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode })
+  });
+  loadStatus();
+}
+
+document.getElementById('btnAnalyze').onclick = async () => {
+  const status = document.getElementById('analyzeStatus');
+  const out = document.getElementById('videoResult');
+  const form = new FormData();
+  let any = false;
+  for (const name of ['North', 'East', 'South', 'West']) {
+    const input = document.getElementById('file' + name);
+    if (input.files.length > 0) {
+      form.append(name.toLowerCase(), input.files[0]);
+      any = true;
+    }
+  }
+  if (!any) {
+    status.textContent = 'Pehle kam az kam ek approach ki video select karo.';
+    return;
+  }
+  const btn = document.getElementById('btnAnalyze');
+  btn.disabled = true;
+  status.textContent = 'Video analyze ho rahi hai… is mein kuch waqt lag sakta hai.';
+  out.innerHTML = '';
+  try {
+    const res = await fetch('/api/analyze-videos', { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) {
+      status.textContent = 'Error: ' + (data.detail || res.status);
+      return;
+    }
+    status.textContent = 'Ho gaya — neeche recommendation hai.';
+    const rows = data.recommendation.map(r =>
+      `<tr><td>${r.approach}</td><td>${r.level}</td><td><strong>${r.green_time}s green</strong></td></tr>`).join('');
+    const missing = data.missing_approaches.length
+      ? `<p class="muted">In approaches ki video nahi mili, inko khaali samjha gaya: ${data.missing_approaches.join(', ')}</p>` : '';
+    const sampled = Object.entries(data.analysis).map(([a, r]) =>
+      `${a}: ${r.frames_sampled} frames check hue, average counts ${JSON.stringify(r.average_counts)}`).join('<br>');
+    out.innerHTML = `
+      <table>
+        <tr><th>Signal</th><th>Traffic level</th><th>Recommended time</th></tr>
+        ${rows}
+      </table>
+      ${missing}
+      <p class="muted">${sampled}<br>${data.note}</p>`;
+    loadStatus();
+  } catch (e) {
+    status.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+document.getElementById('btnAdaptive').onclick = () => setMode('adaptive');
+document.getElementById('btnFixed').onclick = () => setMode('fixed');
+
+document.getElementById('btnRun').onclick = async () => {
+  const scenario = document.getElementById('scenario').value;
+  const out = document.getElementById('comparison');
+  out.textContent = 'Running simulation…';
+  const res = await fetch(`/api/experiments/run?scenario=${scenario}`, { method: 'POST' });
+  const data = await res.json();
+  const f = data.fixed, a = data.adaptive;
+  out.innerHTML = `
+    <table>
+      <tr><th>Metric</th><th>Fixed-time</th><th>Adaptive</th></tr>
+      <tr><td>Average waiting time (s / vehicle)</td><td>${f.avg_waiting_seconds_per_vehicle}</td><td>${a.avg_waiting_seconds_per_vehicle}</td></tr>
+      <tr><td>Average queue length</td><td>${f.avg_queue_length}</td><td>${a.avg_queue_length}</td></tr>
+      <tr><td>Maximum queue length</td><td>${f.max_queue_length}</td><td>${a.max_queue_length}</td></tr>
+      <tr><td>Throughput (vehicles)</td><td>${f.throughput_vehicles}</td><td>${a.throughput_vehicles}</td></tr>
+    </table>
+    <p class="muted">${data.note}</p>`;
+};
+
+loadStatus();
+setInterval(loadStatus, 1000);
+</script>
+</body>
+</html>
