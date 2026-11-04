@@ -18,6 +18,7 @@
   .light.red.on { background: #ef4444; } .light.yellow.on { background: #f59e0b; } .light.green.on { background: #22c55e; }
   .badge { padding: 2px 8px; border-radius: 999px; font-size: 12px; background: #374151; }
   .badge.Low { background: #065f46; } .badge.Medium { background: #92400e; } .badge.High { background: #991b1b; }
+  .badge.clear { background: #166534; color: #bbf7d0; }
   button, select { background: #2563eb; color: white; border: 0; border-radius: 6px; padding: 8px 12px; cursor: pointer; }
   button.secondary { background: #374151; }
   table { width: 100%; border-collapse: collapse; margin-top: 10px; }
@@ -59,7 +60,44 @@
   </p>
   <div id="videoResult"></div>
 
+  <h3 style="margin-top:28px;">OR — one wide video of the whole intersection</h3>
+  <p class="muted">
+    If ONE video shows all four roads at once, use this instead. Select the video,
+    then draw one box on each road: pick the approach name, then drag on the video
+    to draw its box. Detection runs once per frame on the full picture, and each
+    vehicle is counted for the box it falls in. This only gives correct results
+    if all four roads are really visible in the video.
+  </p>
+  <div class="card">
+    <input type="file" id="fileRoi" accept="video/*">
+    <div id="roiWrap" style="position:relative; max-width:760px; margin-top:10px; display:none;">
+      <video id="roiVideo" style="width:100%; display:block; background:#000;" muted loop playsinline></video>
+      <canvas id="roiCanvas" style="position:absolute; left:0; top:0; width:100%; height:100%; cursor:crosshair;"></canvas>
+    </div>
+    <p>
+      Box for:
+      <select id="roiApproach">
+        <option>North</option><option>East</option><option>South</option><option>West</option>
+      </select>
+      <button id="btnRoiDefaults" class="secondary" type="button">Default boxes</button>
+      <button id="btnRoiClear" class="secondary" type="button">Clear boxes</button>
+      <span class="muted" id="roiBoxesInfo">No boxes yet</span>
+    </p>
+    <p>
+      <button id="btnRoiAnalyze" type="button">Analyze intersection video</button>
+      <span class="muted" id="roiStatus"></span>
+    </p>
+  </div>
+  <div id="roiResult"></div>
+
   <h3>Approaches</h3>
+  <p class="muted">
+    Live view: while a signal is green, its vehicles are shown leaving —
+    the counts fall at an estimated discharge rate (about 1 vehicle every
+    2 seconds of green) until the road shows <strong>Road clear</strong>.
+    This drain is a modelled estimate of the queue clearing, not a new
+    detection; upload videos again to measure fresh counts.
+  </p>
   <div class="grid" id="cards"></div>
 
   <h3 style="margin-top:28px;">Fixed-time vs Adaptive — simulation comparison</h3>
@@ -76,12 +114,14 @@
 <script>
 let lastTraffic = null;
 
-function lightState(name, current) {
+function lightState(name, data) {
   // Returns 'red' | 'yellow' | 'green' for one approach
-  if (!current) return 'red';
+  const current = data.current_phase;
+  if (!current || current.state === 'stopped') return 'red';
   if (current.state === 'green' && current.green_approach === name) return 'green';
   if (current.state === 'yellow' && current.approach === name) return 'yellow';
-  if (current.state === 'all_red') return 'red';
+  // The NEXT approach shows yellow a few seconds early: "get ready".
+  if (data.ready_approach === name) return 'yellow';
   return 'red';
 }
 
@@ -93,26 +133,47 @@ async function loadStatus() {
   cards.innerHTML = '';
   for (const [name, d] of Object.entries(data.approaches)) {
     lastTraffic[name] = { counts: d.counts, queue: d.queue };
-    const state = lightState(name, data.current_phase);
+    const state = lightState(name, data);
     const counts = Object.entries(d.counts).map(([k, v]) => `${k}: ${v}`).join(', ');
+    const clearBadge = d.road_clear ? ' <span class="badge clear">Road clear</span>' : '';
     cards.innerHTML += `
       <div class="card">
-        <h2>${name} <span class="badge ${d.level}">${d.level}</span></h2>
+        <h2>${name} <span class="badge ${d.level}">${d.level}</span>${clearBadge}</h2>
         <div class="lights">
           <div class="light red ${state === 'red' ? 'on' : ''}"></div>
           <div class="light yellow ${state === 'yellow' ? 'on' : ''}"></div>
           <div class="light green ${state === 'green' ? 'on' : ''}"></div>
         </div>
         <div>${counts}</div>
-        <div class="muted">Queue: ${d.queue} · Density (PCU): ${d.density} · Green: ${d.green_time}s</div>
+        <div class="muted">Queue: ${d.queue} · Density (PCU): ${d.density} · Green: ${d.green_time}s${d.gap_out_seconds_saved > 0 ? ` (planned ${d.green_time_planned}s — cut short: road clears early)` : ''}</div>
+        <div class="muted">Vehicles left (est.): ${d.vehicles_remaining_est} of ${d.vehicles_initial} measured</div>
       </div>`;
   }
   const p = data.current_phase;
-  document.getElementById('phase').textContent = p
-    ? `Now: ${p.state.replace('_', ' ')}${p.green_approach ? ' — ' + p.green_approach : ''} · ${p.seconds_left}s left · Mode: ${data.mode}`
-    : 'No active phase';
+  document.getElementById('phase').textContent = !p
+    ? 'No active phase'
+    : p.state === 'stopped'
+      ? 'All roads clear — system stopped. Upload new videos to measure again.'
+      : `Now: ${p.state.replace('_', ' ')}${p.green_approach ? ' — ' + p.green_approach : ''} · ${p.seconds_left}s left · Mode: ${data.mode}${data.ready_approach ? ' · Next: ' + data.ready_approach + ' — get ready' : ''}`;
   document.getElementById('sourceLabel').textContent =
     `Source: ${data.source}${data.source === 'demo' ? ' (sample numbers, no video connected yet)' : ''}`;
+}
+
+function showVideoResult(data, out) {
+  // Shared result table for both video endpoints (4 videos / 1 ROI video)
+  const rows = data.recommendation.map(r =>
+    `<tr><td>${r.approach}</td><td>${r.level}</td><td><strong>${r.green_time}s green</strong></td></tr>`).join('');
+  const missing = data.missing_approaches.length
+    ? `<p class="muted">In approaches ka data nahi mila, inko khaali samjha gaya: ${data.missing_approaches.join(', ')}</p>` : '';
+  const sampled = Object.entries(data.analysis).map(([a, r]) =>
+    `${a}: ${r.frames_sampled} frames check hue, average counts ${JSON.stringify(r.average_counts)}`).join('<br>');
+  out.innerHTML = `
+    <table>
+      <tr><th>Signal</th><th>Traffic level</th><th>Recommended time</th></tr>
+      ${rows}
+    </table>
+    ${missing}
+    <p class="muted">${sampled}<br>${data.note}</p>`;
 }
 
 async function setMode(mode) {
@@ -145,25 +206,15 @@ document.getElementById('btnAnalyze').onclick = async () => {
   out.innerHTML = '';
   try {
     const res = await fetch('/api/analyze-videos', { method: 'POST', body: form });
-    const data = await res.json();
+    const raw = await res.text();
+    let data = {};
+    try { data = JSON.parse(raw); } catch (e) { /* server sent plain text */ }
     if (!res.ok) {
-      status.textContent = 'Error: ' + (data.detail || res.status);
+      status.textContent = 'Error: ' + (data.detail || raw.slice(0, 300) || res.status);
       return;
     }
     status.textContent = 'Ho gaya — neeche recommendation hai.';
-    const rows = data.recommendation.map(r =>
-      `<tr><td>${r.approach}</td><td>${r.level}</td><td><strong>${r.green_time}s green</strong></td></tr>`).join('');
-    const missing = data.missing_approaches.length
-      ? `<p class="muted">In approaches ki video nahi mili, inko khaali samjha gaya: ${data.missing_approaches.join(', ')}</p>` : '';
-    const sampled = Object.entries(data.analysis).map(([a, r]) =>
-      `${a}: ${r.frames_sampled} frames check hue, average counts ${JSON.stringify(r.average_counts)}`).join('<br>');
-    out.innerHTML = `
-      <table>
-        <tr><th>Signal</th><th>Traffic level</th><th>Recommended time</th></tr>
-        ${rows}
-      </table>
-      ${missing}
-      <p class="muted">${sampled}<br>${data.note}</p>`;
+    showVideoResult(data, out);
     loadStatus();
   } catch (e) {
     status.textContent = 'Error: ' + e.message;
@@ -180,7 +231,10 @@ document.getElementById('btnRun').onclick = async () => {
   const out = document.getElementById('comparison');
   out.textContent = 'Running simulation…';
   const res = await fetch(`/api/experiments/run?scenario=${scenario}`, { method: 'POST' });
-  const data = await res.json();
+  const rawRun = await res.text();
+  let data = {};
+  try { data = JSON.parse(rawRun); } catch (e) { out.textContent = 'Error: ' + rawRun.slice(0, 300); return; }
+  if (!res.ok) { out.textContent = 'Error: ' + (data.detail || res.status); return; }
   const f = data.fixed, a = data.adaptive;
   out.innerHTML = `
     <table>
@@ -191,6 +245,135 @@ document.getElementById('btnRun').onclick = async () => {
       <tr><td>Throughput (vehicles)</td><td>${f.throughput_vehicles}</td><td>${a.throughput_vehicles}</td></tr>
     </table>
     <p class="muted">${data.note}</p>`;
+};
+
+// ---------- Single wide video with drawn regions (ROI) ----------
+const ROI_COLORS = { North: '#f87171', East: '#fbbf24', South: '#34d399', West: '#60a5fa' };
+let roiBoxes = {};
+let roiDrawStart = null;
+const roiVideo = document.getElementById('roiVideo');
+const roiCanvas = document.getElementById('roiCanvas');
+const roiWrap = document.getElementById('roiWrap');
+
+function roiInfo() {
+  const names = Object.keys(roiBoxes);
+  document.getElementById('roiBoxesInfo').textContent =
+    names.length ? 'Boxes ready: ' + names.join(', ') : 'No boxes yet';
+}
+
+function drawRoiBoxes(tempBox) {
+  const w = roiVideo.clientWidth, h = roiVideo.clientHeight;
+  if (!w || !h) return;
+  roiCanvas.width = w; roiCanvas.height = h;
+  const ctx = roiCanvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  const all = Object.assign({}, roiBoxes);
+  if (tempBox) all[document.getElementById('roiApproach').value] = tempBox;
+  for (const [name, b] of Object.entries(all)) {
+    ctx.strokeStyle = ROI_COLORS[name];
+    ctx.lineWidth = 2;
+    ctx.strokeRect(b.x * w, b.y * h, b.w * w, b.h * h);
+    ctx.fillStyle = ROI_COLORS[name];
+    ctx.font = 'bold 14px Arial';
+    ctx.fillText(name, b.x * w + 4, b.y * h + 16);
+  }
+}
+
+function roiPos(e) {
+  const r = roiCanvas.getBoundingClientRect();
+  return {
+    x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
+    y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))
+  };
+}
+
+function roiBoxFrom(a, b) {
+  return {
+    x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+    w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y)
+  };
+}
+
+document.getElementById('fileRoi').onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  roiVideo.src = URL.createObjectURL(file);
+  roiWrap.style.display = 'block';
+  roiVideo.onloadedmetadata = () => { drawRoiBoxes(); roiVideo.play().catch(() => {}); };
+};
+
+roiCanvas.addEventListener('pointerdown', (e) => {
+  roiDrawStart = roiPos(e);
+  roiCanvas.setPointerCapture(e.pointerId);
+});
+roiCanvas.addEventListener('pointermove', (e) => {
+  if (!roiDrawStart) return;
+  drawRoiBoxes(roiBoxFrom(roiDrawStart, roiPos(e)));
+});
+roiCanvas.addEventListener('pointerup', (e) => {
+  if (!roiDrawStart) return;
+  const box = roiBoxFrom(roiDrawStart, roiPos(e));
+  roiDrawStart = null;
+  if (box.w > 0.02 && box.h > 0.02) {
+    roiBoxes[document.getElementById('roiApproach').value] = box;
+  }
+  drawRoiBoxes();
+  roiInfo();
+});
+
+document.getElementById('btnRoiDefaults').onclick = () => {
+  roiBoxes = {
+    North: { x: 0.35, y: 0.00, w: 0.30, h: 0.45 },
+    East:  { x: 0.65, y: 0.35, w: 0.35, h: 0.30 },
+    South: { x: 0.35, y: 0.55, w: 0.30, h: 0.45 },
+    West:  { x: 0.00, y: 0.35, w: 0.35, h: 0.30 }
+  };
+  drawRoiBoxes();
+  roiInfo();
+};
+
+document.getElementById('btnRoiClear').onclick = () => {
+  roiBoxes = {};
+  drawRoiBoxes();
+  roiInfo();
+};
+
+document.getElementById('btnRoiAnalyze').onclick = async () => {
+  const status = document.getElementById('roiStatus');
+  const out = document.getElementById('roiResult');
+  const input = document.getElementById('fileRoi');
+  if (!input.files.length) {
+    status.textContent = 'Pehle wide video select karo.';
+    return;
+  }
+  if (!Object.keys(roiBoxes).length) {
+    status.textContent = 'Pehle kam az kam ek road par box banao, ya Default boxes dabao.';
+    return;
+  }
+  const form = new FormData();
+  form.append('video', input.files[0]);
+  form.append('rois', JSON.stringify(roiBoxes));
+  const btn = document.getElementById('btnRoiAnalyze');
+  btn.disabled = true;
+  status.textContent = 'Video analyze ho rahi hai… is mein kuch waqt lag sakta hai.';
+  out.innerHTML = '';
+  try {
+    const res = await fetch('/api/analyze-intersection', { method: 'POST', body: form });
+    const raw = await res.text();
+    let data = {};
+    try { data = JSON.parse(raw); } catch (e) { /* server sent plain text */ }
+    if (!res.ok) {
+      status.textContent = 'Error: ' + (data.detail || raw.slice(0, 300) || res.status);
+      return;
+    }
+    status.textContent = 'Ho gaya — neeche recommendation hai.';
+    showVideoResult(data, out);
+    loadStatus();
+  } catch (e) {
+    status.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
 };
 
 loadStatus();

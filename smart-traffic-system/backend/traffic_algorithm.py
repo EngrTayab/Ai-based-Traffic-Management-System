@@ -32,6 +32,19 @@ DEFAULT_CONFIG = {
     "all_red": 2,
     "fixed_green": 30,
     "max_red": 180,
+    # Queue discharge estimate for the live dashboard display: while
+    # an approach is green, roughly one vehicle leaves every
+    # "discharge_seconds_per_vehicle" seconds (typical saturation
+    # headway is about 2 seconds per vehicle).
+    "discharge_seconds_per_vehicle": 2.0,
+    # "Get ready" yellow: this many seconds before an approach's
+    # green starts, that approach already shows yellow on the
+    # dashboard, warning its drivers that their turn is next.
+    "ready_yellow_seconds": 3,
+    # Gap-out: in adaptive mode, a green that is longer than the
+    # time its measured queue needs to clear is cut short, so the
+    # next approach gets its turn earlier. See apply_gap_out().
+    "gap_out_enabled": True,
 }
 
 
@@ -126,6 +139,58 @@ def compute_green_times(traffic, config, mode="adaptive"):
     return details
 
 
+def apply_gap_out(details, config, mode="adaptive"):
+    """Cut greens short once the measured queue has cleared (gap-out).
+
+    Real signal controllers do this: a green is planned from the
+    measured traffic, but if the queue drains before the planned
+    green is over, the remaining seconds are wasted - nobody is
+    left to use them. Gap-out ends the green at the moment the
+    queue is estimated to be empty and hands the time to the next
+    approach.
+
+    The clearing time uses the same discharge estimate as the live
+    dashboard drain: vehicles leave at about one per
+    `discharge_seconds_per_vehicle` seconds, so an approach with N
+    measured vehicles needs about N * discharge seconds of green.
+
+    Safety / honesty rules:
+    - A green is never cut below green_min (the SRS minimum), even
+      for an empty approach.
+    - A green is never EXTENDED by gap-out, only shortened.
+    - Fixed mode is the untouched baseline: no gap-out there, so
+      the fixed-vs-adaptive comparison stays honest.
+    - This is an estimate from the recorded measurement, like the
+      drain display - not a fresh detection.
+
+    Mutates each approach in `details`: "green_time" becomes the
+    effective green, "green_time_planned" keeps the original, and
+    "gap_out_seconds_saved" records the cut (0 when no cut).
+    Returns the total seconds saved in one cycle.
+    """
+    import math
+
+    total_saved = 0.0
+    enabled = mode == "adaptive" and config.get("gap_out_enabled", True)
+    discharge = float(config.get("discharge_seconds_per_vehicle", 2.0))
+    green_min = float(config["green_min"])
+    for approach in APPROACHES:
+        d = details[approach]
+        planned = float(d["green_time"])
+        d["green_time_planned"] = planned
+        saved = 0.0
+        if enabled:
+            vehicles = sum(d["counts"].get(name, 0) for name in VEHICLE_CLASSES)
+            drain_needed = math.ceil(vehicles * discharge) if vehicles > 0 else 0
+            effective = min(planned, max(green_min, float(drain_needed)))
+            if effective < planned:
+                saved = round(planned - effective, 1)
+                d["green_time"] = round(effective, 1)
+        d["gap_out_seconds_saved"] = saved
+        total_saved += saved
+    return round(total_saved, 1)
+
+
 def build_cycle(details, config):
     """Build one full signal cycle: N -> E -> S -> W.
 
@@ -152,3 +217,61 @@ def check_no_conflicting_greens(phases):
         if phase.get("state") == "green" and not phase.get("green"):
             return False
     return True
+
+
+def estimate_remaining_vehicles(initial_vehicles, green_start, green_duration,
+                                cycle_seconds, elapsed_seconds,
+                                discharge_seconds=2.0):
+    """Estimate how many measured vehicles are still waiting.
+
+    This powers the live dashboard effect Tayyab asked for: while an
+    approach has the green light, its queue drains - roughly one
+    vehicle leaves every `discharge_seconds` seconds of green. When
+    the estimate reaches 0 the road is shown as clear.
+
+    IMPORTANT: this is an ESTIMATE of the queue clearing, not a new
+    detection. The recorded videos are not synchronised with the
+    signal cycle, so the system cannot truly know how many vehicles
+    have left - it models the discharge at a fixed rate.
+
+    green_start / green_duration: this approach's green window
+    inside one cycle (seconds). elapsed_seconds: time since the
+    traffic was measured (the cycle anchor). Green received in
+    earlier cycles counts too, so the estimate keeps falling cycle
+    after cycle until it reaches 0 and stays there.
+    """
+    if initial_vehicles <= 0:
+        return 0
+    if cycle_seconds <= 0 or green_duration <= 0:
+        return initial_vehicles
+    elapsed = max(0.0, float(elapsed_seconds))
+    full_cycles = int(elapsed // cycle_seconds)
+    in_cycle = elapsed - full_cycles * cycle_seconds
+    green_elapsed = full_cycles * green_duration
+    if in_cycle > green_start:
+        green_elapsed += min(in_cycle - green_start, green_duration)
+    discharged = int(green_elapsed / discharge_seconds)
+    return max(0, initial_vehicles - discharged)
+
+
+def scale_counts(counts, target_total):
+    """Scale per-class counts so they add up to target_total.
+
+    Used to show the draining queue: the class mix stays roughly
+    proportional to what was measured, while the total falls.
+    Largest-remainder rounding keeps the sum exact.
+    """
+    total = sum(counts.get(name, 0) for name in VEHICLE_CLASSES)
+    if total <= 0 or target_total >= total:
+        return {name: counts.get(name, 0) for name in VEHICLE_CLASSES}
+    if target_total <= 0:
+        return {name: 0 for name in VEHICLE_CLASSES}
+    exact = {name: counts.get(name, 0) * target_total / total
+             for name in VEHICLE_CLASSES}
+    scaled = {name: int(exact[name]) for name in VEHICLE_CLASSES}
+    leftover = target_total - sum(scaled.values())
+    by_remainder = sorted(VEHICLE_CLASSES,
+                          key=lambda n: exact[n] - scaled[n], reverse=True)
+    for name in by_remainder[:leftover]:
+        scaled[name] += 1
+    return scaled

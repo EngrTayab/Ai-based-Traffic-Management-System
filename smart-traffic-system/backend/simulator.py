@@ -15,7 +15,7 @@ Model (kept deliberately simple and explainable):
 - Waiting time is accumulated as queue_length * seconds waited.
 """
 
-from traffic_algorithm import APPROACHES, compute_green_times
+from traffic_algorithm import APPROACHES, apply_gap_out, compute_green_times
 
 # Assumed arrival rates (vehicles per minute per approach).
 # These are demo scenarios, to be replaced/calibrated with real
@@ -48,6 +48,12 @@ def _run_one_strategy(arrival_rates, config, mode, duration_seconds=600):
     second = 0
     while second < duration_seconds:
         details = compute_green_times(current_traffic(), config, mode=mode)
+        if mode == "adaptive":
+            # Model the controller as it is actually shipped: its
+            # greens are gap-out shortened once the queue clears
+            # (traffic_algorithm.apply_gap_out). Fixed mode is the
+            # untouched baseline and never gets gap-out.
+            apply_gap_out(details, config, mode=mode)
         for approach in APPROACHES:
             green = int(round(details[approach]["green_time"]))
             for phase_name, phase_seconds in (
