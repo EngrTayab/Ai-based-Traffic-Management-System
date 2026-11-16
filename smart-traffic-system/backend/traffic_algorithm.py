@@ -45,6 +45,11 @@ DEFAULT_CONFIG = {
     # time its measured queue needs to clear is cut short, so the
     # next approach gets its turn earlier. See apply_gap_out().
     "gap_out_enabled": True,
+    # Manual overrides (v0.8), triggered from the dashboard: how
+    # long an emergency approach holds its priority green, and how
+    # long a pedestrian crossing phase (all approaches red) lasts.
+    "emergency_green_seconds": 20,
+    "pedestrian_seconds": 12,
 }
 
 
@@ -191,14 +196,25 @@ def apply_gap_out(details, config, mode="adaptive"):
     return round(total_saved, 1)
 
 
-def build_cycle(details, config):
-    """Build one full signal cycle: N -> E -> S -> W.
+def build_cycle(details, config, mode="adaptive"):
+    """Build one full signal cycle.
+
+    Adaptive mode runs the approaches busiest-first (v0.15, Tayyab's
+    expo-demo design): the green order follows the measured priority
+    (density + queue), highest first, so the busiest road is served
+    first instead of waiting for a fixed rotation. Ties keep the
+    plain N -> E -> S -> W order. Fixed mode is the untouched
+    baseline and always runs N -> E -> S -> W.
 
     Safety invariant: exactly one approach is green in any phase,
     and yellow + all-red always come between two greens.
     """
+    order = list(APPROACHES)
+    if mode == "adaptive":
+        # Stable sort: equal priorities keep the N -> E -> S -> W order.
+        order.sort(key=lambda a: -details[a]["priority"])
     phases = []
-    for approach in APPROACHES:
+    for approach in order:
         green_time = int(round(details[approach]["green_time"]))
         phases.append({"green": approach, "state": "green", "duration": green_time})
         phases.append({"green": None, "state": "yellow", "approach": approach,

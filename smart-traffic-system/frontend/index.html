@@ -25,6 +25,17 @@
   th, td { border-bottom: 1px solid #374151; padding: 6px; text-align: left; font-size: 14px; }
   .muted { color: #9ca3af; font-size: 13px; }
   #phase { font-size: 18px; margin: 14px 0; }
+  #overrideBanner { display: none; padding: 12px 16px; border-radius: 10px; margin: 14px 0; font-size: 17px; font-weight: bold; }
+  #overrideBanner.emergency { display: block; background: #7f1d1d; color: #fecaca; animation: emgflash 1s infinite alternate; }
+  #overrideBanner.pedestrian { display: block; background: #78350f; color: #fde68a; }
+  @keyframes emgflash { from { box-shadow: 0 0 0 0 rgba(239,68,68,0); } to { box-shadow: 0 0 18px 2px rgba(239,68,68,.55); } }
+  .bar-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 13px; }
+  .bar-label { width: 110px; color: #9ca3af; }
+  .bar-track { flex: 1; background: #374151; border-radius: 6px; height: 20px; }
+  .bar-fill { height: 20px; border-radius: 6px; }
+  .bar-fill.fixed { background: #ef4444; }
+  .bar-fill.adaptive { background: #22c55e; }
+  .bar-value { width: 80px; }
 </style>
 </head>
 <body>
@@ -38,6 +49,115 @@
     <button id="btnAdaptive">Adaptive mode</button>
     <button id="btnFixed" class="secondary">Fixed-time mode</button>
     <span class="muted" id="sourceLabel"></span>
+    <a href="/report" target="_blank"><button class="secondary" type="button">Open report (print / PDF)</button></a>
+  </div>
+
+  <div id="overrideBanner"></div>
+
+  <h3 style="margin-top:24px;">Emergency &amp; pedestrian</h3>
+  <p class="muted">
+    Emergency: give one approach an immediate priority green — the current
+    green first ends safely (yellow, then all-red). In this prototype the
+    button stands in for an emergency vehicle; automatic detection is
+    future work. Pedestrian: stop all approaches for a few seconds so
+    people can cross safely.
+  </p>
+  <div>
+    <span>Emergency vehicle — green for:</span>
+    <button class="emgBtn" data-a="North">🚑 North</button>
+    <button class="emgBtn" data-a="East">🚑 East</button>
+    <button class="emgBtn" data-a="South">🚑 South</button>
+    <button class="emgBtn" data-a="West">🚑 West</button>
+    <button id="btnPedestrian">🚶 Pedestrian crossing</button>
+    <button id="btnCancelOverride" class="secondary">Cancel override</button>
+    <span class="muted" id="overrideStatus"></span>
+  </div>
+
+  <h3 style="margin-top:24px;">Manual light test</h3>
+  <p class="muted">
+    Test the lights from here: click a button and that light turns on —
+    on the dashboard and on the model (the bridge must be running).
+    Every other light turns red, like a real signal. It stays on
+    until you go back to automatic.
+  </p>
+  <div>
+    <div style="margin-bottom:6px;"><span>North:</span>
+      <button class="manualBtn" data-a="North" data-c="red">🔴 Red</button>
+      <button class="manualBtn" data-a="North" data-c="yellow">🟡 Yellow</button>
+      <button class="manualBtn" data-a="North" data-c="green">🟢 Green</button>
+    </div>
+    <div style="margin-bottom:6px;"><span>East:</span>
+      <button class="manualBtn" data-a="East" data-c="red">🔴 Red</button>
+      <button class="manualBtn" data-a="East" data-c="yellow">🟡 Yellow</button>
+      <button class="manualBtn" data-a="East" data-c="green">🟢 Green</button>
+    </div>
+    <div style="margin-bottom:6px;"><span>South:</span>
+      <button class="manualBtn" data-a="South" data-c="red">🔴 Red</button>
+      <button class="manualBtn" data-a="South" data-c="yellow">🟡 Yellow</button>
+      <button class="manualBtn" data-a="South" data-c="green">🟢 Green</button>
+    </div>
+    <div style="margin-bottom:6px;"><span>West:</span>
+      <button class="manualBtn" data-a="West" data-c="red">🔴 Red</button>
+      <button class="manualBtn" data-a="West" data-c="yellow">🟡 Yellow</button>
+      <button class="manualBtn" data-a="West" data-c="green">🟢 Green</button>
+    </div>
+    <div style="margin-bottom:6px;"><span>All sides:</span>
+      <button class="manualBtn" data-a="All" data-c="red">🔴 All red</button>
+      <button class="manualBtn" data-a="All" data-c="yellow">🟡 All yellow</button>
+      <button class="manualBtn" data-a="All" data-c="green">🟢 All green</button>
+    </div>
+    <button id="btnManualCancel" class="secondary">Back to automatic</button>
+    <span class="muted" id="manualStatus"></span>
+  </div>
+
+  <h3 style="margin-top:28px;">Live camera</h3>
+  <p class="muted">
+    Point the laptop camera at a road — or at a screen playing a traffic
+    video. First <strong>Open camera</strong> to see the view without
+    counting anything; in <strong>model mode</strong> fit the four
+    coloured boxes to the roads with <strong>Auto-fit regions to
+    roads</strong>, then press <strong>Start detection</strong> — only
+    then does the system count the vehicles it can see, and when the
+    counts change it recalculates the signal times by itself. One
+    camera watches the whole table-top model at once and all four
+    approaches are counted together — the toy cars do not need to move.
+  </p>
+  <div class="card">
+    <div style="position:relative;">
+      <video id="camVideo" autoplay playsinline muted style="width:100%;border-radius:8px;background:#000;display:block;"></video>
+      <canvas id="camOverlay" style="position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;display:none;"></canvas>
+    </div>
+    <div style="margin-top:10px;">
+      <label><input type="radio" name="camMode" value="one" checked> One road</label>
+      &nbsp;
+      <label><input type="radio" name="camMode" value="model"> Whole model (all four roads)</label>
+    </div>
+    <div style="margin-top:10px;">
+      <span>Camera:
+        <select id="camSelect"><option value="">Default camera</option></select>
+      </span>
+      <span id="camApproachWrap">Camera watches:
+        <select id="camApproach">
+          <option>North</option><option>East</option><option>South</option><option>West</option>
+        </select>
+      </span>
+      <button id="btnCamStart">Open camera</button>
+      <button id="btnCamDetect" disabled>Start detection</button>
+      <button id="btnCamStop" class="secondary" disabled>Stop</button>
+      <span class="muted" id="camStatus">Camera is off.</span>
+    </div>
+    <div style="margin-top:10px;">
+      <button id="btnAutoRegions" class="secondary">Auto-fit regions to roads</button>
+      <span>Redraw box for:
+        <select id="camRedrawApproach">
+          <option>North</option><option>East</option><option>South</option><option>West</option>
+        </select>
+      </span>
+      <span class="muted">then drag a new box on the video.</span>
+      <span class="muted" id="autoRegionStatus"></span>
+    </div>
+    <div id="autoRegionProof"></div>
+    <div id="camResult"></div>
   </div>
 
   <h3 style="margin-top:28px;">Upload traffic videos — get signal times</h3>
@@ -57,6 +177,9 @@
   <p>
     <button id="btnAnalyze">Analyze videos &amp; recommend signal times</button>
     <span class="muted" id="analyzeStatus"></span>
+  </p>
+  <p class="muted">
+    <label><input type="checkbox" id="chkTracking"> Also count all vehicles that come and pass (tracking) — the system follows every vehicle through the whole video and counts each one once. This takes longer.</label>
   </p>
   <div id="videoResult"></div>
 
@@ -116,6 +239,15 @@ let lastTraffic = null;
 
 function lightState(name, data) {
   // Returns 'red' | 'yellow' | 'green' for one approach
+  // v0.25 manual light test: only the clicked light shows its
+  // colour; v0.25.1: every other approach shows red, like a real
+  // signal - so switching from North green to East green turns
+  // North red.
+  const manual = data.manual_light;
+  if (manual) {
+    if (manual.approach === 'All') return manual.color;
+    return manual.approach === name ? manual.color : 'red';
+  }
   const current = data.current_phase;
   if (!current || current.state === 'stopped') return 'red';
   if (current.state === 'green' && current.green_approach === name) return 'green';
@@ -150,13 +282,37 @@ async function loadStatus() {
       </div>`;
   }
   const p = data.current_phase;
-  document.getElementById('phase').textContent = !p
-    ? 'No active phase'
-    : p.state === 'stopped'
-      ? 'All roads clear — system stopped. Upload new videos to measure again.'
-      : `Now: ${p.state.replace('_', ' ')}${p.green_approach ? ' — ' + p.green_approach : ''} · ${p.seconds_left}s left · Mode: ${data.mode}${data.ready_approach ? ' · Next: ' + data.ready_approach + ' — get ready' : ''}`;
+  const banner = document.getElementById('overrideBanner');
+  const ov = data.override;
+  if (ov) {
+    banner.className = ov.kind;
+    banner.textContent = ov.kind === 'emergency'
+      ? `🚑 EMERGENCY — ${ov.approach} has priority${ov.stage === 'clearing' ? ' · clearing the intersection first' : ''} · ${ov.seconds_left}s`
+      : `🚶 Pedestrian crossing — all vehicles stopped · ${ov.seconds_left}s`;
+    document.getElementById('phase').textContent = ov.kind === 'emergency'
+      ? (ov.stage === 'clearing' ? 'Emergency: clearing the intersection safely…' : `Now: green — ${ov.approach} (emergency priority) · ${p ? p.seconds_left : ''}s left`)
+      : `Pedestrian crossing · ${p ? p.seconds_left : ''}s left`;
+  } else if (data.manual_light) {
+    // v0.25 manual light test.
+    banner.className = '';
+    banner.textContent = '';
+    const m = data.manual_light;
+    document.getElementById('phase').textContent = m.approach === 'All'
+      ? `Manual test: all ${m.color} lights are on — click 'Back to automatic' to resume.`
+      : `Manual test: ${m.approach} ${m.color} is on — click 'Back to automatic' to resume.`;
+  } else {
+    banner.className = '';
+    banner.textContent = '';
+    document.getElementById('phase').textContent = !p
+      ? 'No active phase'
+      : p.state === 'stopped'
+        ? (data.source === 'waiting'
+          ? 'No measurement yet — signals are stopped. Start the live camera or upload a video.'
+          : 'All roads clear — system stopped. Upload new videos to measure again.')
+        : `Now: ${p.state.replace('_', ' ')}${p.green_approach ? ' — ' + p.green_approach : ''} · ${p.seconds_left}s left · Mode: ${data.mode}${data.ready_approach ? ' · Next: ' + data.ready_approach + ' — get ready' : ''}`;
+  }
   document.getElementById('sourceLabel').textContent =
-    `Source: ${data.source}${data.source === 'demo' ? ' (sample numbers, no video connected yet)' : ''}`;
+    `Source: ${data.source}${data.source === 'demo' ? ' (sample numbers, no video connected yet)' : data.source === 'waiting' ? ' (no measurement yet)' : ''}`;
 }
 
 function showVideoResult(data, out) {
@@ -164,16 +320,37 @@ function showVideoResult(data, out) {
   const rows = data.recommendation.map(r =>
     `<tr><td>${r.approach}</td><td>${r.level}</td><td><strong>${r.green_time}s green</strong></td></tr>`).join('');
   const missing = data.missing_approaches.length
-    ? `<p class="muted">In approaches ka data nahi mila, inko khaali samjha gaya: ${data.missing_approaches.join(', ')}</p>` : '';
-  const sampled = Object.entries(data.analysis).map(([a, r]) =>
-    `${a}: ${r.frames_sampled} frames check hue, average counts ${JSON.stringify(r.average_counts)}`).join('<br>');
+    ? `<p class="muted">No data was received for these approaches, so they were treated as empty: ${data.missing_approaches.join(', ')}</p>` : '';
+  const sampled = Object.entries(data.analysis).map(([a, r]) => {
+    let line = `${a}: ${r.frames_sampled} frames check hue, average counts ${JSON.stringify(r.average_counts)}`;
+    if (r.tracking) {
+      const t = r.tracking;
+      const bd = Object.entries(t.unique_counts).filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${v}`).join(', ') || 'none';
+      line += `<br>${a} — <strong>total vehicles that came and passed (tracking): ${t.unique_total}</strong> (${bd})${t.partial ? ' — first part of the video only (long video)' : ''}`;
+    }
+    if (r.tracking_error) {
+      line += `<br>${a} — tracking could not run: ${r.tracking_error}`;
+    }
+    return line;
+  }).join('<br>');
+  const proofs = [];
+  if (data.proof_image) {
+    proofs.push(`<div class="card"><h2>Whole intersection</h2><img src="data:image/jpeg;base64,${data.proof_image}" style="width:100%;border-radius:8px;"><p class="muted">Coloured outlines are your drawn regions; the small labelled boxes are the vehicles the AI detected in this frame. This busiest frame shows ${data.proof_frame_vehicles} vehicles in the whole picture; ${data.proof_frame_counted} of them were inside your regions and counted. The numbers in the table are averages over the sampled frames, so they are lower than this single busiest moment.</p></div>`);
+  }
+  for (const [a, r] of Object.entries(data.analysis)) {
+    if (r.proof_image) {
+      proofs.push(`<div class="card"><h2>${a}</h2><img src="data:image/jpeg;base64,${r.proof_image}" style="width:100%;border-radius:8px;"><p class="muted">This busiest frame shows ${r.proof_frame_vehicles} vehicles. The numbers above are the average of ${r.frames_sampled} frames, so they are lower than this single busiest moment.</p></div>`);
+    }
+  }
+  const proofHtml = proofs.length ? `<h3 style="margin-top:20px;">Detection proof — what the AI saw</h3><p class="muted">The sampled frame in which the AI found the most vehicles. Every box is one detected vehicle, labelled with its class.</p><div class="grid">${proofs.join('')}</div>` : '';
   out.innerHTML = `
     <table>
       <tr><th>Signal</th><th>Traffic level</th><th>Recommended time</th></tr>
       ${rows}
     </table>
     ${missing}
-    <p class="muted">${sampled}<br>${data.note}</p>`;
+    <p class="muted">${sampled}<br>${data.note}</p>
+    ${proofHtml}`;
 }
 
 async function setMode(mode) {
@@ -197,12 +374,13 @@ document.getElementById('btnAnalyze').onclick = async () => {
     }
   }
   if (!any) {
-    status.textContent = 'Pehle kam az kam ek approach ki video select karo.';
+    status.textContent = 'Please select at least one approach video first.';
     return;
   }
+  form.append('tracking', document.getElementById('chkTracking').checked ? 'true' : 'false');
   const btn = document.getElementById('btnAnalyze');
   btn.disabled = true;
-  status.textContent = 'Video analyze ho rahi hai… is mein kuch waqt lag sakta hai.';
+  status.textContent = 'Analyzing the video… this can take a little time.';
   out.innerHTML = '';
   try {
     const res = await fetch('/api/analyze-videos', { method: 'POST', body: form });
@@ -213,13 +391,370 @@ document.getElementById('btnAnalyze').onclick = async () => {
       status.textContent = 'Error: ' + (data.detail || raw.slice(0, 300) || res.status);
       return;
     }
-    status.textContent = 'Ho gaya — neeche recommendation hai.';
+    status.textContent = 'Done — see the recommendation below.';
     showVideoResult(data, out);
     loadStatus();
   } catch (e) {
     status.textContent = 'Error: ' + e.message;
   } finally {
     btn.disabled = false;
+  }
+};
+
+document.querySelectorAll('.emgBtn').forEach(btn => {
+  btn.onclick = async () => {
+    const a = btn.dataset.a;
+    await fetch('/api/emergency', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approach: a }) });
+    document.getElementById('overrideStatus').textContent = `Emergency sent to ${a} — watch the signals.`;
+    loadStatus();
+  };
+});
+document.getElementById('btnPedestrian').onclick = async () => {
+  await fetch('/api/pedestrian', { method: 'POST' });
+  document.getElementById('overrideStatus').textContent = 'Pedestrian crossing started — all signals are red.';
+  loadStatus();
+};
+document.getElementById('btnCancelOverride').onclick = async () => {
+  await fetch('/api/override/cancel', { method: 'POST' });
+  document.getElementById('overrideStatus').textContent = 'Override cancelled — normal cycle resumed.';
+  loadStatus();
+};
+// ---------- Manual light test (v0.25) ----------
+document.querySelectorAll('.manualBtn').forEach(btn => {
+  btn.onclick = async () => {
+    const a = btn.dataset.a, c = btn.dataset.c;
+    await fetch('/api/manual-light', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approach: a, color: c }) });
+    document.getElementById('manualStatus').textContent = a === 'All'
+      ? `All ${c} lights are on.`
+      : `${a} ${c} is on — the other lights are red.`;
+    loadStatus();
+  };
+});
+document.getElementById('btnManualCancel').onclick = async () => {
+  await fetch('/api/manual-light/cancel', { method: 'POST' });
+  document.getElementById('manualStatus').textContent = 'Back to automatic — the normal cycle is running again.';
+  loadStatus();
+};
+// ---------- Live camera (v0.10; whole-model mode v0.14) ----------
+let camStream = null;
+let camTimer = null;
+let camBusy = false;
+let camDetecting = false;
+
+// The four regions of the model mode: the same default boxes as the
+// single-video section. The model is positioned UNDER these boxes.
+const MODEL_REGIONS = {
+  North: { x: 0.35, y: 0.0, w: 0.30, h: 0.45 },
+  East: { x: 0.65, y: 0.35, w: 0.35, h: 0.30 },
+  South: { x: 0.35, y: 0.55, w: 0.30, h: 0.45 },
+  West: { x: 0.0, y: 0.35, w: 0.35, h: 0.30 },
+};
+
+function camMode() {
+  return document.querySelector('input[name="camMode"]:checked').value;
+}
+
+// Fill the camera picker with every camera the browser can see
+// (laptop camera, USB webcam, phone-as-webcam...). Labels only
+// appear after camera permission was granted once, so this runs
+// again after the camera starts.
+async function camFillDevices() {
+  const select = document.getElementById('camSelect');
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+    select.style.display = 'none';
+    return;
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cameras = devices.filter(d => d.kind === 'videoinput');
+    const chosen = select.value;
+    select.innerHTML = '<option value="">Default camera</option>' +
+      cameras.map((d, i) => `<option value="${d.deviceId}">${d.label || 'Camera ' + (i + 1)}</option>`).join('');
+    if ([...select.options].some(o => o.value === chosen)) select.value = chosen;
+  } catch (e) { /* picker is optional - the default camera still works */ }
+}
+camFillDevices();
+
+// v0.29: redraw one model box by hand (same drag pattern as the
+// single-video regions above). While a drag is in progress the
+// live frame timer keeps redrawing the overlay, so drawCamOverlay
+// draws the in-progress box itself instead of letting the timer
+// wipe it.
+let camDragStart = null;
+let camDragCurrent = null;
+
+function camOverlayPos(e) {
+  const canvas = document.getElementById('camOverlay');
+  const r = canvas.getBoundingClientRect();
+  return {
+    x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
+    y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))
+  };
+}
+
+function drawCamOverlay() {
+  const video = document.getElementById('camVideo');
+  const canvas = document.getElementById('camOverlay');
+  const on = camStream && camMode() === 'model' && video.videoWidth;
+  canvas.style.display = on ? 'block' : 'none';
+  if (!on) return;
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.lineWidth = Math.max(2, canvas.width / 320);
+  ctx.font = `bold ${Math.max(14, canvas.width / 40)}px sans-serif`;
+  const shown = Object.assign({}, MODEL_REGIONS);
+  if (camDragStart && camDragCurrent) {
+    shown[document.getElementById('camRedrawApproach').value] = {
+      x: Math.min(camDragStart.x, camDragCurrent.x),
+      y: Math.min(camDragStart.y, camDragCurrent.y),
+      w: Math.abs(camDragStart.x - camDragCurrent.x),
+      h: Math.abs(camDragStart.y - camDragCurrent.y)
+    };
+  }
+  for (const [name, b] of Object.entries(shown)) {
+    const x = b.x * canvas.width, y = b.y * canvas.height;
+    const w = b.w * canvas.width, h = b.h * canvas.height;
+    ctx.strokeStyle = ROI_COLORS[name];
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = ROI_COLORS[name];
+    ctx.fillText(name, x + 6, y + Math.max(16, canvas.width / 36));
+  }
+}
+
+document.getElementById('camOverlay').addEventListener('pointerdown', (e) => {
+  if (!camStream || camMode() !== 'model') return;
+  camDragStart = camOverlayPos(e);
+  camDragCurrent = camDragStart;
+  document.getElementById('camOverlay').setPointerCapture(e.pointerId);
+});
+document.getElementById('camOverlay').addEventListener('pointermove', (e) => {
+  if (!camDragStart) return;
+  camDragCurrent = camOverlayPos(e);
+  drawCamOverlay();
+});
+document.getElementById('camOverlay').addEventListener('pointerup', async (e) => {
+  if (!camDragStart) return;
+  const end = camOverlayPos(e);
+  const box = {
+    x: Math.min(camDragStart.x, end.x), y: Math.min(camDragStart.y, end.y),
+    w: Math.abs(camDragStart.x - end.x), h: Math.abs(camDragStart.y - end.y)
+  };
+  const approach = document.getElementById('camRedrawApproach').value;
+  camDragStart = null;
+  camDragCurrent = null;
+  if (box.w > 0.02 && box.h > 0.02) {
+    Object.assign(MODEL_REGIONS[approach], box);
+    // The old settled counts belong to the old box - start fresh.
+    await fetch('/api/live-model-stop', { method: 'POST' }).catch(() => {});
+    document.getElementById('autoRegionStatus').textContent =
+      `${approach} box redrawn — counts start fresh with the new box.`;
+  }
+  drawCamOverlay();
+});
+
+document.querySelectorAll('input[name="camMode"]').forEach(radio => {
+  radio.onchange = () => {
+    document.getElementById('camApproachWrap').style.display =
+      camMode() === 'model' ? 'none' : '';
+    drawCamOverlay();
+  };
+});
+
+function camShowProof(data, caption) {
+  return data.proof_image
+    ? `<img src="data:image/jpeg;base64,${data.proof_image}" style="width:100%;border-radius:8px;">
+       <p class="muted">${caption}</p>`
+    : '';
+}
+
+async function camSendFrame() {
+  const video = document.getElementById('camVideo');
+  const status = document.getElementById('camStatus');
+  if (!camStream || !camDetecting || camBusy || !video.videoWidth) return;
+  camBusy = true;
+  try {
+    drawCamOverlay();
+    const canvas = document.createElement('canvas');
+    const scale = Math.min(1, 1280 / video.videoWidth);
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.8));
+    if (!blob) return;
+    const fmt = counts => Object.entries(counts).filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${v}`).join(', ') || 'no vehicles seen';
+    const result = document.getElementById('camResult');
+    let appliedFlag = false;
+    if (camMode() === 'model') {
+      const form = new FormData();
+      form.append('regions', JSON.stringify(MODEL_REGIONS));
+      form.append('file', blob, 'frame.jpg');
+      const res = await fetch('/api/live-model-frame', { method: 'POST', body: form });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        status.textContent = 'Live counting paused: ' + (data.detail || res.status);
+        return;
+      }
+      appliedFlag = !!data.applied;
+      const line = obj => ['North', 'East', 'South', 'West'].map(a => `${a}: ${fmt(obj[a] || {})}`).join(' &nbsp;·&nbsp; ');
+      result.innerHTML = `
+        <p class="muted">Model counts in this frame — ${line(data.counts_now)}<br>
+        Settled count from the last frames (what the signals use) — ${line(data.counts_avg)}<br>
+        ${data.applied ? '<strong>Signal times were updated from the model camera.</strong>' : 'Counts unchanged — signals keep their current plan.'}</p>
+        ${camShowProof(data, `This frame: ${data.proof_frame_counted} of the ${data.proof_frame_vehicles} detected vehicles stood inside the four regions and were counted.`)}`;
+    } else {
+      const form = new FormData();
+      form.append('approach', document.getElementById('camApproach').value);
+      form.append('file', blob, 'frame.jpg');
+      const res = await fetch('/api/live-frame', { method: 'POST', body: form });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        status.textContent = 'Live counting paused: ' + (data.detail || res.status);
+        return;
+      }
+      appliedFlag = !!data.applied;
+      const totalNow = Object.values(data.counts_now).reduce((s, v) => s + v, 0);
+      result.innerHTML = `
+        <p class="muted">In this frame: ${fmt(data.counts_now)}<br>
+        Settled count from the last frames (what the signals use): ${fmt(data.counts_avg)}<br>
+        ${data.applied ? '<strong>Signal times were updated from the camera.</strong>' : 'Counts unchanged — signals keep their current plan.'}
+        ${totalNow === 0 ? '<br><strong>Tip:</strong> move the camera closer so the video fills the whole camera view, and set the screen brightness to full — then the vehicles are big enough for the AI to see.' : ''}</p>
+        ${data.proof_image ? `<img src="data:image/jpeg;base64,${data.proof_image}" style="width:100%;border-radius:8px;">` : ''}`;
+    }
+    status.textContent = 'Live — counting every second.';
+    if (appliedFlag) loadStatus();
+  } catch (e) {
+    status.textContent = 'Live frame failed: ' + e.message;
+  } finally {
+    camBusy = false;
+  }
+}
+
+// v0.30: opening the camera and detecting are two separate steps
+// (Tayyab: nothing runs until live really starts). "Open camera"
+// only shows the view - no frames are sent, nothing is counted -
+// so the regions can be fitted first (Auto-fit works on the
+// preview). "Start detection" then begins the one-second counting
+// loop, and only then do the signals follow the camera.
+document.getElementById('btnCamStart').onclick = async () => {
+  const status = document.getElementById('camStatus');
+  const deviceId = document.getElementById('camSelect').value;
+  const videoSpec = deviceId ? { deviceId: { exact: deviceId } } : true;
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: videoSpec, audio: false });
+  } catch (e) {
+    status.textContent = 'Camera could not be opened: ' + e.message + ' — allow camera access for this site in the browser.';
+    return;
+  }
+  document.getElementById('camVideo').srcObject = camStream;
+  camFillDevices();
+  document.getElementById('btnCamStart').disabled = true;
+  document.getElementById('btnCamDetect').disabled = false;
+  document.getElementById('btnCamStop').disabled = false;
+  document.querySelectorAll('input[name="camMode"]').forEach(r => { r.disabled = true; });
+  document.getElementById('camSelect').disabled = true;
+  status.textContent = camMode() === 'model'
+    ? 'Camera preview — fit the regions with Auto-fit, then press Start detection.'
+    : 'Camera preview — press Start detection when the road is in view.';
+  setTimeout(drawCamOverlay, 1200);
+};
+
+document.getElementById('btnCamDetect').onclick = () => {
+  if (!camStream || camDetecting) return;
+  camDetecting = true;
+  document.getElementById('btnCamDetect').disabled = true;
+  document.getElementById('camStatus').textContent = 'Live — counting every second.';
+  camTimer = setInterval(camSendFrame, 1000);
+  setTimeout(camSendFrame, 900);
+};
+
+document.getElementById('btnCamStop').onclick = async () => {
+  if (camTimer) clearInterval(camTimer);
+  camTimer = null;
+  camDetecting = false;
+  const approach = document.getElementById('camApproach').value;
+  if (camStream) camStream.getTracks().forEach(t => t.stop());
+  camStream = null;
+  document.getElementById('camVideo').srcObject = null;
+  document.getElementById('btnCamStart').disabled = false;
+  document.getElementById('btnCamDetect').disabled = true;
+  document.getElementById('btnCamStop').disabled = true;
+  document.querySelectorAll('input[name="camMode"]').forEach(r => { r.disabled = false; });
+  document.getElementById('camSelect').disabled = false;
+  document.getElementById('camOverlay').style.display = 'none';
+  document.getElementById('camStatus').textContent = 'Camera is off.';
+  await fetch(`/api/live-stop?approach=${approach}`, { method: 'POST' }).catch(() => {});
+  await fetch('/api/live-model-stop', { method: 'POST' }).catch(() => {});
+};
+
+// v0.29: snap the four model regions onto the roads the camera
+// actually sees. Sends the current frame to /api/auto-regions;
+// every road the server finds moves its box, and roads it cannot
+// trace get a box placed from the crossing's own geometry (v0.30),
+// so all four boxes move in one press - the status line says
+// which roads were found on the picture and which were placed by
+// estimate. Works on the camera preview: detection does not need
+// to be running. The settled counts are cleared afterwards,
+// because they were measured with the old boxes and must not
+// carry over to the new ones.
+document.getElementById('btnAutoRegions').onclick = async () => {
+  const status = document.getElementById('autoRegionStatus');
+  const proof = document.getElementById('autoRegionProof');
+  const button = document.getElementById('btnAutoRegions');
+  const video = document.getElementById('camVideo');
+  if (!camStream || camMode() !== 'model' || !video.videoWidth) {
+    status.textContent = 'Auto-fit needs the camera open in Whole-model mode (preview is enough).';
+    return;
+  }
+  button.disabled = true;
+  status.textContent = 'Finding the roads in this frame…';
+  try {
+    const canvas = document.createElement('canvas');
+    const scale = Math.min(1, 1280 / video.videoWidth);
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.8));
+    if (!blob) {
+      status.textContent = 'Could not capture a frame — try again.';
+      return;
+    }
+    const form = new FormData();
+    form.append('file', blob, 'frame.jpg');
+    const res = await fetch('/api/auto-regions', { method: 'POST', body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      status.textContent = 'Auto-fit failed: ' + (data.detail || res.status);
+      return;
+    }
+    const moved = [...(data.found || []), ...(data.estimated || [])];
+    for (const name of moved) {
+      if (data.regions && data.regions[name]) {
+        Object.assign(MODEL_REGIONS[name], data.regions[name]);
+      }
+    }
+    drawCamOverlay();
+    // The old settled counts belong to the old boxes - start
+    // fresh so the signals use counts from the new regions only.
+    await fetch('/api/live-model-stop', { method: 'POST' }).catch(() => {});
+    const missing = data.missing || [];
+    const estimated = data.estimated || [];
+    const found = data.found || [];
+    if (found.length === 4) {
+      status.textContent = 'Found all 4 roads — the boxes now sit inside the roads.';
+    } else {
+      const parts = [];
+      if (found.length) parts.push(`Found ${found.join(', ')} on the roads`);
+      if (estimated.length) parts.push(`${estimated.join(', ')} placed by estimate — check the picture and drag the box if it is off`);
+      if (missing.length) parts.push(`${missing.join(', ')} road not found — kept your box for it`);
+      status.textContent = parts.join('. ') + '.';
+    }
+    proof.innerHTML = camShowProof(data, 'The new regions drawn on this frame. If one box still needs adjusting, pick its road above and drag a new box on the video.');
+  } catch (e) {
+    status.textContent = 'Auto-fit failed: ' + e.message;
+  } finally {
+    button.disabled = false;
   }
 };
 
@@ -236,6 +771,12 @@ document.getElementById('btnRun').onclick = async () => {
   try { data = JSON.parse(rawRun); } catch (e) { out.textContent = 'Error: ' + rawRun.slice(0, 300); return; }
   if (!res.ok) { out.textContent = 'Error: ' + (data.detail || res.status); return; }
   const f = data.fixed, a = data.adaptive;
+  const maxWait = Math.max(f.avg_waiting_seconds_per_vehicle, a.avg_waiting_seconds_per_vehicle, 0.01);
+  const pct = v => Math.max(2, Math.round(v / maxWait * 100));
+  const graphHtml = `
+    <h4 style="margin:16px 0 6px;">Average waiting time — lower is better</h4>
+    <div class="bar-row"><span class="bar-label">Fixed-time</span><div class="bar-track"><div class="bar-fill fixed" style="width:${pct(f.avg_waiting_seconds_per_vehicle)}%"></div></div><span class="bar-value">${f.avg_waiting_seconds_per_vehicle}s</span></div>
+    <div class="bar-row"><span class="bar-label">Adaptive (ours)</span><div class="bar-track"><div class="bar-fill adaptive" style="width:${pct(a.avg_waiting_seconds_per_vehicle)}%"></div></div><span class="bar-value">${a.avg_waiting_seconds_per_vehicle}s</span></div>`;
   out.innerHTML = `
     <table>
       <tr><th>Metric</th><th>Fixed-time</th><th>Adaptive</th></tr>
@@ -244,6 +785,7 @@ document.getElementById('btnRun').onclick = async () => {
       <tr><td>Maximum queue length</td><td>${f.max_queue_length}</td><td>${a.max_queue_length}</td></tr>
       <tr><td>Throughput (vehicles)</td><td>${f.throughput_vehicles}</td><td>${a.throughput_vehicles}</td></tr>
     </table>
+    ${graphHtml}
     <p class="muted">${data.note}</p>`;
 };
 
@@ -343,11 +885,11 @@ document.getElementById('btnRoiAnalyze').onclick = async () => {
   const out = document.getElementById('roiResult');
   const input = document.getElementById('fileRoi');
   if (!input.files.length) {
-    status.textContent = 'Pehle wide video select karo.';
+    status.textContent = 'Please select the wide video first.';
     return;
   }
   if (!Object.keys(roiBoxes).length) {
-    status.textContent = 'Pehle kam az kam ek road par box banao, ya Default boxes dabao.';
+    status.textContent = 'Please draw a box on at least one road first, or click Default boxes.';
     return;
   }
   const form = new FormData();
@@ -355,7 +897,7 @@ document.getElementById('btnRoiAnalyze').onclick = async () => {
   form.append('rois', JSON.stringify(roiBoxes));
   const btn = document.getElementById('btnRoiAnalyze');
   btn.disabled = true;
-  status.textContent = 'Video analyze ho rahi hai… is mein kuch waqt lag sakta hai.';
+  status.textContent = 'Analyzing the video… this can take a little time.';
   out.innerHTML = '';
   try {
     const res = await fetch('/api/analyze-intersection', { method: 'POST', body: form });
@@ -366,7 +908,7 @@ document.getElementById('btnRoiAnalyze').onclick = async () => {
       status.textContent = 'Error: ' + (data.detail || raw.slice(0, 300) || res.status);
       return;
     }
-    status.textContent = 'Ho gaya — neeche recommendation hai.';
+    status.textContent = 'Done — see the recommendation below.';
     showVideoResult(data, out);
     loadStatus();
   } catch (e) {
